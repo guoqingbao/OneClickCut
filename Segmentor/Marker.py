@@ -21,9 +21,9 @@ from slicer.util import VTKObservationMixin
 #---------------------------------------------------------------------------
 #Marker class used for marking seeds
 class Marker:
-  def setup(self, parent, radius):
+  def setup(self, parent, radius, which):
     #firstly, find the proper instance for following marking
-    self.sliceWidget = slicer.app.layoutManager().sliceWidget("Yellow")
+    self.sliceWidget = slicer.app.layoutManager().sliceWidget(which)
     self.sliceLogic = self.sliceWidget.sliceLogic()
     self.sliceView = self.sliceWidget.sliceView()
     #interactor is very important for processing user input events, such as mouse move
@@ -64,6 +64,35 @@ class Marker:
     #used for remember events, that will make it eaiser to remove events from listener
     self.interactorObserverTags  = []
 
+  def resetActor(self):
+    #actors used for paint effects, the paint effects just like 3D Slicer's paint effect
+    self.renderer.RemoveActor2D(self.actor)
+    self.actors = []
+    # the current operation
+    self.actionState = None
+
+    # interaction state variables
+    self.position = [0, 0, 0]
+    self.paintCoordinates = []
+    self.feedbackActors = []
+    self.lastRadius = 0
+
+    # scratch variables
+    self.rasToXY = vtk.vtkMatrix4x4()
+
+    # initialization of painter
+    self.brush = vtk.vtkPolyData()
+    self.createGlyph(self.brush)
+    #self.createGlyph(self.brush)
+    self.mapper = vtk.vtkPolyDataMapper2D()
+    self.actor = vtk.vtkActor2D()
+    self.mapper.SetInputData(self.brush)
+    self.actor.SetMapper(self.mapper)
+
+    self.savedCursor = None
+    self.renderer.AddActor2D(self.actor)
+    self.actors.append(self.actor)
+  pass
   #
   #Create a poly graph, used for marking the seeds, 
   #mark a poly graph after user click instead of just mark single pixel
@@ -131,12 +160,13 @@ class Marker:
       vtk.vtkCommand.MouseMoveEvent,
       vtk.vtkCommand.KeyPressEvent,
       vtk.vtkCommand.EnterEvent,
-      vtk.vtkCommand.LeaveEvent )
+      vtk.vtkCommand.LeaveEvent
+      )
     
     for e in events:
       tag = self.interactor.AddObserver(e, self.processEvent, 1.0)
       self.interactorObserverTags.append(tag)
-      print "AddObserver", tag
+      #print "AddObserver", tag
 
     self.actor.VisibilityOff()
     self.rasToXY = vtk.vtkMatrix4x4()
@@ -254,11 +284,15 @@ class Marker:
         xy = self.interactor.GetEventPosition()
         self.paintAddPoint(xy[0], xy[1])
         self.abortEvent(event)
-    elif event == "EnterEvent":
+    elif event == "EnterEvent" or event=="RightButtonReleaseEvent":
+      self.resetActor()
       self.actor.VisibilityOn()
+      print "resetActor"
     elif event == "LeaveEvent":
       self.actor.VisibilityOff()
-    else:
+      print "LeaveEvent"
+
+    else:   
         return
 
     # events from the slice node
@@ -451,7 +485,7 @@ class Marker:
     #drop the event listener
     for tag in self.interactorObserverTags:
       self.interactor.RemoveObserver(tag)
-      print "RemoveObserver", tag
+      #print "RemoveObserver", tag
     self.interactorObserverTags = []
 
   #

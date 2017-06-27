@@ -144,6 +144,150 @@ class SegmentorLogic(ScriptedLoadableModuleLogic):
       result = cv2.warpAffine(image, rot_mat, image.shape,flags=cv2.INTER_LINEAR)
       return result
 
+  def GetGrowRange(self, seedingROI_values, compensateIntensity):
+    # compensateIntensity is used to select the voxels within a range  
+    svalues = np.sort(seedingROI_values)
+    strs = ""
+    for idx, val in enumerate(svalues):
+      strs = strs + str(val) + ","
+    print "seed values: [", strs, "]"
+
+    hist, bins = np.histogram(svalues)
+    minV = int(bins[0])
+    maxV = int(bins[len(bins)-1])
+
+    for inx, val in enumerate(hist):
+        if hist.sum()>0 and val*1.0/hist.sum() > 0.05:
+            minV = int(bins[inx])
+            break
+    for inx, val in reversed(list(enumerate(hist))):
+        if hist.sum()>0 and val*1.0/hist.sum() > 0.05:
+         maxV = int(bins[inx])
+         break
+
+
+    print "hist ", hist
+    print "bins", bins
+    print "min-max ", minV, maxV
+ 
+    # compensateIntensity is used to select the voxels within a range  
+    ROI_min = minV - compensateIntensity
+    ROI_max = maxV + compensateIntensity
+
+    if ROI_min < int(bins[0]):
+        ROI_min = int(bins[0])
+    if ROI_max > int(bins[len(bins)-1]):
+        ROI_max = int(bins[len(bins)-1])
+    print "min-max compensate ", ROI_min, ROI_max
+
+    return (ROI_min,ROI_max)
+  #
+  #Region growing algorithm in 3D space, detection local difference, if beyond predefined intensity range,
+  # and exceed the boundary difference, block growth in that direction,
+  #However, the result of this algorithm is rough, need further refinement
+  #
+  def RegionGrow3d(self, inputVolumeData, seedingROIData, outputROIData, compensateIntensity):
+
+    # Get the mean of the seeding ROI
+    seedingROI_coords   = np.where(seedingROIData > 0)
+    seedingROI_values   = inputVolumeData[seedingROI_coords]
+    
+    #clear output roi
+    for i in range(dx):
+      #each of the slice
+      oneslice = outputROIData[i:i+1, 0:dy,0:dz][0]
+      mul_array = np.full((dy,dz),0,np.float32);
+      oneslice = oneslice * mul_array
+      outputROIData[i:i+1, 0:dy,0:dz][0] = oneslice
+
+    # # the location of the seeding voxel
+    sx = seedingROI_coords[0][seedingROI_values.argmax()]
+    sy = seedingROI_coords[1][seedingROI_values.argmax()]
+    sz = seedingROI_coords[2][seedingROI_values.argmax()]
+
+    print "seed-point ", sx, sy,sz
+    
+
+
+    ROI_min, ROI_max = self.GetGrowRange(seedingROI_values, compensateIntensity)
+    # Dimension of the input volume 
+    dx, dy, dz = inputVolumeData.shape
+    print "inputVolumeData shape", dx, dy, dz
+
+    items = []
+
+    boundary_dif = 15
+
+    def enqueue(item):
+        items.insert(0,item)
+
+    def dequeue():
+        s = items.pop()
+        #visited.append(s)
+        return s
+    def remove(xx,yy,zz):
+        for item in items[:]:
+            a,b,c = item
+            if abs(a-xx)<5 or abs(b-yy)<5 or abs(c-zz)<5:
+                #print "remove", item
+                items.remove(item) 
+
+    enqueue((sx, sy, sz))
+    first = True
+    while not items==[]:
+        
+        x,y,z = dequeue()
+        #if not visited
+        if outputROIData[x,y,z] != 1:
+           outputROIData[x,y,z] = 1
+
+           #reach the image edges
+           if x+3>= dx or x-3 <=0:
+               break
+           if y+3>= dy or y-3 <=0:
+               break
+           if z+3>= dz or z-3 <=0:
+               break
+           tmpList = []
+           #used to extract visited voxels
+           patch_boolen  = outputROIData[x - 1 : x + 2, y - 1 : y + 2, z - 1 : z + 2]   
+           if patch_boolen.sum() > 0:
+               #voxels group, which use x,y,z as center
+                patch_values    = inputVolumeData[x - 1 : x + 2, y - 1 : y + 2, z - 1 : z + 2] 
+                #to make patch, must have same shape
+                if patch_boolen.shape == patch_values.shape:
+                    #patch it, get unvisited values and voxels
+                    boolen_values   = patch_values[:] * patch_boolen[:]
+                    existing_values = boolen_values[np.where(boolen_values > 0)]
+                    #for the first visit, use the default voxel group to extract voxels values 
+                    if first:
+                        existing_values = patch_values[np.where(patch_values > 0)]
+                        first = False
+                    #if growed to this region
+                    if len(existing_values)>0:
+                      #get local max, min info
+                      local_min       = existing_values.min() - compensateIntensity
+                      local_max       = existing_values.max() + compensateIntensity  
+                      added = False
+                      tmpList[:] = []
+  
+                      tmpList.insert(0,(x,y-1,z))
+                      tmpList.insert(0,(x,y+1,z))
+                      tmpList.insert(0,(x,y,z-1))
+                      tmpList.insert(0,(x,y,z+1))
+                      tmpList.insert(0,(x-1,y,z))
+                      tmpList.insert(0,(x+1,y,z))
+                      for tmp in tmpList:
+                          x1,y1,z1 = tmp
+                          v = inputVolumeData[x1, y1, z1] #get its value
+                          if v >= ROI_min and v<=ROI_max and v>local_min and v<local_max: #match the intensity range
+                            enqueue((x1, y1, z1)) #add to waiting list
+                            added = True
+                      #for each voxels in current group (use x, y, z as center), if not visited and match the intensity range
+                      #stop criteria, if all of the voxels in the group not match predefined intensity range and beyond the boundary difference criteria
+                      if not added and abs(existing_values.min()-minV) >boundary_dif and abs(existing_values.max()-maxV)>boundary_dif:
+                            remove(x,y,z) # not grow at this direction, remove voxels who have similar location from the waiting list
+    pass
 
   #
   #Region growing algorithm in 3D space, modified from grow-cut in 3D slicer
@@ -160,9 +304,10 @@ class SegmentorLogic(ScriptedLoadableModuleLogic):
     sy = seedingROI_coords[1][seedingROI_values.argmax()]
     sz = seedingROI_coords[2][seedingROI_values.argmax()]
 
-    # compensateIntensity is used to select the voxels within a range  
-    ROI_min = seedingROI_values.min() - compensateIntensity
-    ROI_max = seedingROI_values.max() + compensateIntensity
+    print "seed-point ", sx, sy,sz
+
+    ROI_min, ROI_max = self.GetGrowRange(seedingROI_values, compensateIntensity)
+    
 
     # Dimension of the input volume 
     dx, dy, dz = inputVolumeData.shape
@@ -198,16 +343,18 @@ class SegmentorLogic(ScriptedLoadableModuleLogic):
                 if patch_boolen.sum() > 1:
                     local_value     = inputVolumeData[lx, ly, lz] 
                     patch_values    = inputVolumeData[lx - 1 : lx + 2, ly - 1 : ly + 2, lz - 1 : lz + 2] 
-                    if patch_boolen.shape != patch_values.shape:
-                      break
-                    boolen_values   = patch_values[:] * patch_boolen[:]
-                    
-                    existing_values = boolen_values[np.where(boolen_values > 0)]
-                    local_min       = existing_values.min() - compensateIntensity
-                    local_max       = existing_values.max() + compensateIntensity                 
-                    # Third stop criterion: the voxel value is beyond the range of local existing neighbors
-                    if local_value < local_max and local_value > local_min:
-                        outputROIData[lx, ly, lz] = 1
+   
+                    if patch_boolen.shape == patch_values.shape:
+                        boolen_values   = patch_values[:] * patch_boolen[:]
+                        existing_values = boolen_values[np.where(boolen_values > 0)]
+                        if len(existing_values)>0:
+                            local_min       = existing_values.min() - compensateIntensity*1.2
+                            local_max       = existing_values.max() + compensateIntensity*1.2  
+                                         
+                            # Third stop criterion: the voxel value is beyond the range of local existing neighbors
+                            if local_value <= local_max and local_value >= local_min :
+                                outputROIData[lx, ly, lz] = 1
+                            
 
     pass
 
@@ -297,7 +444,8 @@ class SegmentorLogic(ScriptedLoadableModuleLogic):
     outputROI_name  = seedingROI.GetName() + '_grow'
     seedingOutputROI       = slicer.modules.volumes.logic().CloneVolume(slicer.mrmlScene, seedingROI, outputROI_name)
     outputROIData   = slicer.util.array(seedingOutputROI.GetID())
-    
+
+
     #create output node
     outputVolume_name = inputVolume.GetName() + '_processed'
     volumesLogic = slicer.modules.volumes.logic()
@@ -316,6 +464,7 @@ class SegmentorLogic(ScriptedLoadableModuleLogic):
     dx, dy, dz = outputROIData.shape
     print "Start to Find ROI Convexhull: outputROIData shape", dx, dy, dz
     
+
 
     #Start to optimize the result of grow-cut############
     #since the result of grow-cut need postproceesing

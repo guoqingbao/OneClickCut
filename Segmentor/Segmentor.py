@@ -215,8 +215,11 @@ class SegmentorWidget(ScriptedLoadableModuleWidget,VTKObservationMixin):
 
     #marker is for marking the initial seeds
     self.marker = Marker()
-    self.marker.setup(self,self.paintSizeSlider.value)
-
+    self.marker.setup(self,self.paintSizeSlider.value,"Red")
+    self.marker1 = Marker()
+    self.marker1.setup(self,self.paintSizeSlider.value,"Yellow")
+    self.marker2 = Marker()
+    self.marker2.setup(self,self.paintSizeSlider.value,"Green")
 
     self.layout.addStretch(1)
 
@@ -231,7 +234,8 @@ class SegmentorWidget(ScriptedLoadableModuleWidget,VTKObservationMixin):
   def enter(self):
     self.createLabel()
     self.marker.listen() #marker will listen mouse event for processing marking, like button down, mouse move and release
-    
+    self.marker1.listen() 
+    self.marker2.listen() 
     tag = self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneClose) 
     tag = self.addObserver(slicer.mrmlScene, vtk.vtkCommand.ModifiedEvent, self.updateLabelNode)
     self.onSelect();
@@ -245,6 +249,8 @@ class SegmentorWidget(ScriptedLoadableModuleWidget,VTKObservationMixin):
     print "exit processed!"
     self.removeObservers()
     self.marker.dropListen()
+    self.marker1.dropListen()
+    self.marker2.dropListen()
     self.paintSizeSlider.enabled = False
 
   #
@@ -253,6 +259,8 @@ class SegmentorWidget(ScriptedLoadableModuleWidget,VTKObservationMixin):
   def onSceneClose(self, caller=None, event=None):
       print "onSceneClose"
       self.marker.dropListen()
+      self.marker1.dropListen()
+      self.marker2.dropListen()
       self.paintSizeSlider.enabled = False
 
   #
@@ -300,6 +308,8 @@ class SegmentorWidget(ScriptedLoadableModuleWidget,VTKObservationMixin):
     if self.inputSelector.currentNode():
        if not self.seedingSelector.currentNode():
          self.marker.listen()
+         self.marker1.listen()
+         self.marker2.listen()
          self.paintSizeSlider.enabled = True
 
     #create the label if it is not created
@@ -347,8 +357,21 @@ class SegmentorWidget(ScriptedLoadableModuleWidget,VTKObservationMixin):
     self.marker.dropListen()
     self.marker = Marker()
     self.marker.setMarkerSize(self.paintSizeSlider.value)
-    self.marker.setup(self,self.paintSizeSlider.value)
+    self.marker.setup(self,self.paintSizeSlider.value,"Red")
     self.marker.listen()
+
+    self.marker1.dropListen()
+    self.marker1 = Marker()
+    self.marker1.setMarkerSize(self.paintSizeSlider.value)
+    self.marker1.setup(self,self.paintSizeSlider.value,"Yellow")
+    self.marker1.listen()
+
+    self.marker2.dropListen()
+    self.marker2 = Marker()
+    self.marker2.setMarkerSize(self.paintSizeSlider.value)
+    self.marker2.setup(self,self.paintSizeSlider.value,"Green")
+    self.marker2.listen()
+
     print "radius change to ", self.paintSizeSlider.value
 
   #

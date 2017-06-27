@@ -1,4 +1,4 @@
-# Project - One Click Cut  - "To segment 3D ROI, like tumor, leison from given 3D volume"
+﻿# Project - One Click Cut  - "To segment 3D ROI, like tumor, leison from given 3D volume"
 # Author: Guoqing Bao
 # Supervisor: Sidong Liu; Weidong Cai; 
 # The University of Sydney
